@@ -195,7 +195,7 @@ pub fn get_audio_devices() -> CommandResult<Vec<AudioDevice>> {
     Ok(audio_devices)
 }
 
-struct StreamHandle(Stream);
+pub(crate) struct StreamHandle(pub(crate) Stream);
 unsafe impl Send for StreamHandle {}
 unsafe impl Sync for StreamHandle {}
 
@@ -210,7 +210,7 @@ const SILENCE_PEAK_THRESHOLD: f32 = 1.0e-4;
 ///
 /// Everything here is atomic and allocation-free: the audio callback only does a few relaxed
 /// loads/stores, and once per 100ms one callback also performs the (non-blocking) `emit_to`.
-struct LevelMeter {
+pub(crate) struct LevelMeter {
     app_handle: AppHandle,
     started_at: Instant,
     /// Max level seen since the last emit, stored as `f32::to_bits` (monotonic for +0.0..=1.0).
@@ -221,7 +221,7 @@ struct LevelMeter {
 }
 
 impl LevelMeter {
-    fn new(app_handle: AppHandle) -> Self {
+    pub(crate) fn new(app_handle: AppHandle) -> Self {
         Self {
             app_handle,
             started_at: Instant::now(),
@@ -232,7 +232,7 @@ impl LevelMeter {
     }
 
     /// Accumulate one buffer's peak and emit if the throttle window elapsed.
-    fn push(&self, peak: f32) {
+    pub(crate) fn push(&self, peak: f32) {
         self.peak_bits.fetch_max(peak.to_bits(), Ordering::Relaxed);
         self.session_peak_bits.fetch_max(peak.to_bits(), Ordering::Relaxed);
 
@@ -270,7 +270,7 @@ fn silence_warning(session_peak: f32, device_names: &[String]) -> Option<String>
 
 /// Peak magnitude of a buffer, normalized to 0..1. Every sample counts: a stride would only ever
 /// read some channels of an interleaved buffer and could call a live channel silent.
-fn buffer_peak<T>(input: &[T]) -> f32
+pub(crate) fn buffer_peak<T>(input: &[T]) -> f32
 where
     T: Sample,
     f32: FromSample<T>,
@@ -301,14 +301,20 @@ fn remove_recording_intermediates(paths: impl IntoIterator<Item = PathBuf>, keep
 }
 
 #[tauri::command]
-/// Record audio from the given devices, store to wav, merge with ffmpeg, and return path
+/// Record audio from devices; private sessions never enter the disk/ffmpeg path.
 pub async fn start_record(
     app_handle: AppHandle,
     devices: Vec<AudioDevice>,
     recording_name: Option<String>,
+    no_audio_storage: Option<bool>,
 ) -> CommandResult<StartRecordOutcome> {
     if devices.is_empty() {
         return Err(eyre!("At least one audio device is required").into());
+    }
+    // Honour the current UI request too: its persisted write may still be in flight.
+    // A caller cannot opt out while the backend's privacy policy is enabled.
+    if crate::private_audio::enabled(&app_handle)? || no_audio_storage.unwrap_or(false) {
+        return Ok(crate::private_audio::start_record(app_handle, devices, recording_name)?);
     }
     let host = cpal::default_host();
 
@@ -325,13 +331,7 @@ pub async fn start_record(
         tracing::debug!("Recording from device: {}", device.name);
         tracing::debug!("Device ID: {}", device.id);
 
-        let (device, config, fallback) = if device.is_input {
-            let (dev, fallback) = pick_device(&host, &device)?;
-            let config = dev.default_input_config().context("Failed to get default input config")?;
-            (dev, config, fallback)
-        } else {
-            get_output_device_and_config(&host, &device)?
-        };
+        let (device, config, fallback) = open_device(&host, &device)?;
         device_names.push(device_name(&device));
         outcome.device_fallbacks.extend(fallback);
         let spec = wav_spec_from_config(&config);
@@ -482,6 +482,20 @@ pub async fn start_record(
 
     crate::meeting_prompt::recording_started(&app_handle);
     Ok(outcome)
+}
+
+/// Opens a requested device by its stable id (the system default when it is gone) with its capture config.
+pub(crate) fn open_device(
+    host: &cpal::Host,
+    audio_device: &AudioDevice,
+) -> Result<(Device, SupportedStreamConfig, Option<DeviceFallback>)> {
+    if audio_device.is_input {
+        let (device, fallback) = pick_device(host, audio_device)?;
+        let config = device.default_input_config().context("Failed to get default input config")?;
+        Ok((device, config, fallback))
+    } else {
+        get_output_device_and_config(host, audio_device)
+    }
 }
 
 #[allow(unused_variables)]

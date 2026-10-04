@@ -183,6 +183,12 @@ pub async fn download_ytdlp(app_handle: AppHandle, version: String) -> CommandRe
 
 #[tauri::command]
 pub async fn download_audio(app_handle: AppHandle, url: String, out_path: String) -> CommandResult<()> {
+    if crate::private_audio::enabled(&app_handle)? {
+        return Err(eyre!(
+            "URL downloads are unavailable with Do not store audio enabled; import an existing audio file instead"
+        )
+        .into());
+    }
     tracing::debug!("download audio {}", url);
     let url = validate_media_url(&url)?;
     let out_path = validate_out_path(&out_path, &get_vibe_temp_folder())?;

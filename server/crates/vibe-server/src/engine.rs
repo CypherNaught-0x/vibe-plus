@@ -21,6 +21,7 @@ pub struct EngineCapabilities {
 #[allow(clippy::large_enum_variant)]
 pub enum Engine {
     Whisper(whisper_rs::Context),
+    Audio8(crate::audio8::Model),
     Nemotron {
         model: Box<nemotron_rs::Model>,
         vad: Option<(String, vad_rs::Vad)>,
@@ -94,10 +95,13 @@ pub fn probe_gguf(path: &str) -> anyhow::Result<(GgufModel, EngineCapabilities)>
 
 impl Engine {
     pub fn requires_vad(&self) -> bool {
-        !matches!(self, Self::Whisper(_))
+        !matches!(self, Self::Whisper(_) | Self::Audio8(_))
     }
 
     pub fn load(path: &str, options: ContextOptions) -> anyhow::Result<Self> {
+        if path.ends_with(".audio8.json") {
+            return crate::audio8::Model::load(path, options).map(Self::Audio8);
+        }
         // A GGUF file is never a whisper model, so report why the GGUF
         // engines rejected it instead of handing it to whisper.cpp.
         if !path.ends_with(".gguf") && !is_gguf(path) {
@@ -131,6 +135,7 @@ impl Engine {
     ) -> anyhow::Result<TranscribeResult> {
         let mut result = match self {
             Self::Whisper(context) => return context.transcribe_stream(samples, options, callbacks).map_err(Into::into),
+            Self::Audio8(model) => return model.transcribe(samples, options, callbacks),
             Self::Nemotron { model, vad } => {
                 if options.translate {
                     bail!("Nemotron does not support translation");
@@ -240,6 +245,7 @@ impl Engine {
     pub fn capabilities(&self) -> EngineCapabilities {
         match self {
             Self::Whisper(_) => whisper_capabilities(),
+            Self::Audio8(_) => crate::audio8::capabilities(),
             Self::Nemotron { model, .. } => {
                 gguf_capabilities("nemotron", model.info().languages.clone(), model.info().language_detection)
             }

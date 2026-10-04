@@ -7,7 +7,8 @@ use axum::http::StatusCode;
 use axum::response::Response;
 use tokio::io::AsyncWriteExt;
 
-use crate::server::transcription::TranscriptionRequest;
+use crate::server::form::FormValues;
+use crate::server::transcription::{TranscriptionRequest, Upload};
 use crate::server::{error, AppState, MAX_UPLOAD_SIZE};
 
 /// Every form field but `file` is a short option (a language, a path, a prompt).
@@ -77,8 +78,16 @@ async fn parse_multipart(mut multipart: Multipart, limits: Limits, dir: &Path) -
         let name = field.name().unwrap_or_default().to_string();
         if name == "file" {
             // A repeated field replaces the earlier one, whose temp file is removed here.
-            file = Some(save_to_temp_file(field, limits.file, dir).await?);
+            // `no_audio_storage` must come before the file: once set, the upload stays in memory.
+            file = Some(if FormValues::new(&form).bool("no_audio_storage") {
+                Upload::Memory(read_to_memory(field, limits.file).await?)
+            } else {
+                Upload::Disk(save_to_temp_file(field, limits.file, dir).await?)
+            });
         } else {
+            if name == "no_audio_storage" && matches!(file, Some(Upload::Disk(_))) {
+                return Err(invalid("'no_audio_storage' must be sent before the 'file' field"));
+            }
             let value = read_text(field, limits.field)
                 .await
                 .map_err(|message| invalid(&format!("form field '{name}': {message}")))?;
@@ -121,6 +130,21 @@ async fn save_to_temp_file(mut field: Field<'_>, limit: usize, dir: &Path) -> Re
     // Close the handle before ffmpeg opens the path (Windows sharing rules).
     drop(file.into_std().await);
     Ok(path)
+}
+
+async fn read_to_memory(mut field: Field<'_>, limit: usize) -> Result<Vec<u8>, Response> {
+    let mut bytes = Vec::new();
+    while let Some(chunk) = field
+        .chunk()
+        .await
+        .map_err(|err| invalid(&format!("missing or invalid 'file' field: {err}")))?
+    {
+        if bytes.len().saturating_add(chunk.len()) > limit {
+            return Err(invalid("uploaded file is too large"));
+        }
+        bytes.extend_from_slice(&chunk);
+    }
+    Ok(bytes)
 }
 
 async fn read_text(mut field: Field<'_>, limit: usize) -> Result<String, String> {
@@ -185,7 +209,10 @@ mod tests {
             .ok()
             .unwrap();
         assert_eq!(request.form.get("language").map(String::as_str), Some("en"));
-        let path: PathBuf = request.file.to_path_buf();
+        let Upload::Disk(file) = &request.file else {
+            panic!("expected a file on disk")
+        };
+        let path: PathBuf = file.to_path_buf();
         assert_eq!(std::fs::read(&path).unwrap(), b"RIFF-not-really");
         drop(request);
         assert!(!path.exists(), "temp file left behind after success");

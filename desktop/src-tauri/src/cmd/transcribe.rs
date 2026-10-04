@@ -49,6 +49,8 @@ pub struct TranscribeOptions {
     pub diarize_model: Option<String>,
     pub stable_timestamps: Option<bool>,
     pub vad_model: Option<String>,
+    #[serde(default)]
+    pub no_audio_storage: Option<bool>,
 }
 
 pub(crate) const SERVER_DIED: &str = "vibe-server process died during transcription";
@@ -111,15 +113,45 @@ struct AbortListener {
     id: Option<EventId>,
 }
 
+/// The cancel flag of one transcription, plus a wake-up so a pending request or stream read
+/// returns at once instead of after the server's next event.
+#[derive(Default)]
+struct Abort {
+    flag: AtomicBool,
+    notify: tokio::sync::Notify,
+}
+
+impl Abort {
+    fn load(&self, ordering: Ordering) -> bool {
+        self.flag.load(ordering)
+    }
+
+    fn cancel(&self) {
+        self.flag.store(true, Ordering::Relaxed);
+        self.notify.notify_waiters();
+    }
+
+    /// Resolves once cancelled, however late the cancel arrives.
+    async fn cancelled(&self) {
+        loop {
+            let notified = self.notify.notified();
+            if self.load(Ordering::Relaxed) {
+                return;
+            }
+            notified.await;
+        }
+    }
+}
+
 impl AbortListener {
     /// Without an id there is nothing an abort could name, so nothing is registered.
-    fn register(app_handle: &tauri::AppHandle, transcription_id: Option<String>, abort: Arc<AtomicBool>) -> Self {
+    fn register(app_handle: &tauri::AppHandle, transcription_id: Option<String>, abort: Arc<Abort>) -> Self {
         let id = transcription_id.filter(|id| !id.is_empty()).map(|transcription_id| {
             let app_handle_c = app_handle.clone();
             app_handle.listen("abort_transcribe", move |event| {
                 if abort_targets(event.payload(), &transcription_id) {
                     let _ = set_progress_bar(&app_handle_c, None);
-                    abort.store(true, Ordering::Relaxed);
+                    abort.cancel();
                 }
             })
         });
@@ -168,27 +200,34 @@ async fn loaded_on_gpu(server_state: &State<'_, Mutex<ServerState>>) -> bool {
 #[tauri::command]
 pub async fn transcribe(
     app_handle: tauri::AppHandle,
-    options: TranscribeOptions,
+    mut options: TranscribeOptions,
     // Optional so older callers keep working; an `abort_transcribe` must name it to cancel.
     transcription_id: Option<String>,
     server_state: State<'_, Mutex<ServerState>>,
 ) -> Result<Transcript, CommandError> {
-    // Validate file exists before attempting transcription
-    let audio_path = PathBuf::from(&options.path);
-    if !audio_path.exists() {
-        return Err(CommandError {
-            code: "invalid_request".to_string(),
-            message: format!("Audio file not found: {}", options.path),
-        });
-    }
-    if !audio_path.is_file() {
-        return Err(CommandError {
-            code: "invalid_request".to_string(),
-            message: format!("Path is not a file: {}", options.path),
-        });
+    let _private_audio = crate::private_audio::Cleanup::new(&options.path)?;
+    let memory = crate::private_audio::is_memory_path(&options.path);
+    options.no_audio_storage =
+        Some(options.no_audio_storage.unwrap_or(false) || memory || crate::private_audio::enabled(&app_handle)?);
+    // Private handles are validated in RAM by Cleanup, never treated as file paths.
+    // Imported files remain read-only even when no-audio-storage is enabled.
+    if !memory {
+        let audio_path = PathBuf::from(&options.path);
+        if !audio_path.exists() {
+            return Err(CommandError {
+                code: "invalid_request".to_string(),
+                message: format!("Audio file not found: {}", options.path),
+            });
+        }
+        if !audio_path.is_file() {
+            return Err(CommandError {
+                code: "invalid_request".to_string(),
+                message: format!("Path is not a file: {}", options.path),
+            });
+        }
     }
 
-    let abort = Arc::new(AtomicBool::new(false));
+    let abort = Arc::new(Abort::default());
     let _abort_listener = AbortListener::register(&app_handle, transcription_id.clone(), abort.clone());
 
     let mut retried = false;
@@ -243,7 +282,7 @@ async fn run_attempt(
     app_handle: &tauri::AppHandle,
     options: &TranscribeOptions,
     server_state: &State<'_, Mutex<ServerState>>,
-    abort: &AtomicBool,
+    abort: &Abort,
 ) -> Result<Transcript, AttemptError> {
     // Read per attempt: a CPU retry runs against a freshly spawned process on a new port.
     let (client, base_url) = {
@@ -259,7 +298,11 @@ async fn run_attempt(
 
     let start = std::time::Instant::now();
 
-    let stream = match crate::server::ServerProcess::transcribe_stream(&client, &base_url, options).await {
+    let request = tokio::select! {
+        _ = abort.cancelled() => return Ok(Transcript { processing_time_sec: 0, segments: Vec::new() }),
+        result = crate::server::ServerProcess::transcribe_stream(&client, &base_url, options) => result,
+    };
+    let stream = match request {
         Ok(stream) => stream,
         Err(e) => return Err(transcribe_error(server_state, e).await),
     };
@@ -269,7 +312,11 @@ async fn run_attempt(
     let mut segments = Vec::new();
     let mut completed = false;
 
-    while let Some(event_result) = stream.next().await {
+    loop {
+        let event_result = tokio::select! {
+            _ = abort.cancelled() => break,
+            event = stream.next() => match event { Some(event) => event, None => break },
+        };
         if abort.load(Ordering::Relaxed) {
             tracing::debug!("transcription aborted by user");
             break;

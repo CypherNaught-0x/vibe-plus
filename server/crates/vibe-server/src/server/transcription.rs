@@ -13,9 +13,26 @@ use crate::server::stream::{stream_transcription, StreamInput};
 use crate::server::unload_timeout::ModelLease;
 use crate::server::{error, format, TextResponse};
 
+/// The uploaded audio. A `no_audio_storage` request keeps it in memory so it never touches the disk.
+pub(super) enum Upload {
+    /// On disk; deleted when this drops.
+    Disk(tempfile::TempPath),
+    Memory(Vec<u8>),
+}
+
+impl Upload {
+    /// Decode and release the upload: the samples are all that is needed from here on, so the
+    /// disk (or memory) is freed now rather than after a transcription as long as the audio.
+    pub fn decode(self, options: audio::ReadOptions) -> anyhow::Result<Vec<f32>> {
+        match self {
+            Self::Disk(path) => audio::read_file_with_options(&path, options),
+            Self::Memory(bytes) => audio::read_bytes_in_memory(bytes, options),
+        }
+    }
+}
+
 pub(super) struct TranscriptionRequest {
-    /// The uploaded file on disk; deleted when this drops.
-    pub file: tempfile::TempPath,
+    pub file: Upload,
     pub form: HashMap<String, String>,
 }
 
@@ -67,13 +84,10 @@ pub(super) async fn transcribe(
         .map_err(|err| *err);
     }
 
-    let samples = audio::read_file_with_options(&file, audio_options).map_err(|err| {
+    let samples = file.decode(audio_options).map_err(|err| {
         let (status, code, message) = audio_error(&err);
         error(status, code, &message)
     })?;
-    // The decoded samples are all that is needed from here on; free the disk now rather
-    // than after a transcription that can take as long as the audio.
-    drop(file);
 
     let diar_segments = diarize_model
         .as_deref()

@@ -17,8 +17,8 @@ use crate::server::{error, format, speakers};
 
 /// What a streamed request still has to turn into samples and speaker turns.
 pub(super) struct StreamInput {
-    /// The uploaded file on disk; deleted when this drops.
-    pub file: tempfile::TempPath,
+    /// The uploaded audio; a file on disk is deleted when this drops.
+    pub file: super::transcription::Upload,
     pub audio_options: audio::ReadOptions,
     pub diarize_model: Option<String>,
 }
@@ -76,7 +76,7 @@ pub(super) fn stream_transcription(
             diarize_model,
         } = input;
         let _ = send_stage(&final_tx, "preparing");
-        let samples = match audio::read_file_with_options(&file, audio_options) {
+        let samples = match file.decode(audio_options) {
             Ok(samples) => samples,
             Err(err) => {
                 let (_, code, message) = audio_error(&err);
@@ -91,7 +91,6 @@ pub(super) fn stream_transcription(
                 return;
             }
         };
-        drop(file);
         let segment_diar_segments = match diarize_model.as_deref() {
             Some(model_path) if !final_tx.is_closed() => {
                 let _ = send_stage(&final_tx, "speakers");
