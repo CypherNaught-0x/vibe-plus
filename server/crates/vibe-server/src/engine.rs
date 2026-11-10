@@ -22,6 +22,7 @@ pub struct EngineCapabilities {
 pub enum Engine {
     Whisper(whisper_rs::Context),
     Audio8(crate::audio8::Model),
+    NemoSpeech(crate::nemo_speech::Model),
     Nemotron {
         model: Box<nemotron_rs::Model>,
         vad: Option<(String, vad_rs::Vad)>,
@@ -95,7 +96,7 @@ pub fn probe_gguf(path: &str) -> anyhow::Result<(GgufModel, EngineCapabilities)>
 
 impl Engine {
     pub fn requires_vad(&self) -> bool {
-        !matches!(self, Self::Whisper(_) | Self::Audio8(_))
+        !matches!(self, Self::Whisper(_) | Self::Audio8(_) | Self::NemoSpeech(_))
     }
 
     pub fn load(path: &str, options: ContextOptions) -> anyhow::Result<Self> {
@@ -106,6 +107,9 @@ impl Engine {
         // engines rejected it instead of handing it to whisper.cpp.
         if !path.ends_with(".gguf") && !is_gguf(path) {
             return Ok(Self::Whisper(whisper_rs::Context::new(path, options)?));
+        }
+        if crate::nemo_speech::is_decoder(path) {
+            return crate::nemo_speech::Model::load(path, options).map(Self::NemoSpeech);
         }
         Ok(match probe_gguf(path)?.0 {
             GgufModel::Nemotron => Self::Nemotron {
@@ -136,6 +140,7 @@ impl Engine {
         let mut result = match self {
             Self::Whisper(context) => return context.transcribe_stream(samples, options, callbacks).map_err(Into::into),
             Self::Audio8(model) => return model.transcribe(samples, options, callbacks),
+            Self::NemoSpeech(model) => return model.transcribe(samples, options, callbacks),
             Self::Nemotron { model, vad } => {
                 if options.translate {
                     bail!("Nemotron does not support translation");
@@ -246,6 +251,7 @@ impl Engine {
         match self {
             Self::Whisper(_) => whisper_capabilities(),
             Self::Audio8(_) => crate::audio8::capabilities(),
+            Self::NemoSpeech(_) => crate::nemo_speech::capabilities(),
             Self::Nemotron { model, .. } => {
                 gguf_capabilities("nemotron", model.info().languages.clone(), model.info().language_detection)
             }

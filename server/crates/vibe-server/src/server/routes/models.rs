@@ -45,6 +45,9 @@ pub(in crate::server) async fn model_metadata(Json(request): Json<ModelMetadataR
                 });
         }
 
+        if crate::nemo_speech::is_decoder(&path) {
+            return Ok(crate::nemo_speech::capabilities());
+        }
         crate::engine::probe_gguf(&path)
             .map(|(_, capabilities)| capabilities)
             .map_err(|err| {
