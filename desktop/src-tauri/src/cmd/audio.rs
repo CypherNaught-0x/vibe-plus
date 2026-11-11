@@ -15,6 +15,7 @@ use tauri::{AppHandle, Emitter, Listener};
 
 use crate::error::LogError;
 use crate::ffmpeg::{get_local_time, random_string};
+use crate::recording_encoder::{LiveEncoder, LiveSink, RecordingFormat};
 
 type WavWriterHandle = Arc<Mutex<Option<hound::WavWriter<BufWriter<File>>>>>;
 
@@ -292,21 +293,35 @@ fn best_raw_capture(wav_paths: &[(PathBuf, u32)]) -> Option<PathBuf> {
         .map(|(path, _)| path.clone())
 }
 
-fn remove_recording_intermediates(paths: impl IntoIterator<Item = PathBuf>, keep: &PathBuf) {
-    for path in paths {
-        if path != *keep && path.exists() {
-            std::fs::remove_file(path).map_err(|e| eyre!("{e:?}")).log_error();
-        }
-    }
+/// The live encoder can only mix streams that run at one rate; otherwise the WAVs are
+/// transcoded after stop, as before.
+fn live_encoder_rate(configs: &[SupportedStreamConfig]) -> Option<u32> {
+    let rate = configs.first()?.sample_rate();
+    configs.iter().all(|config| config.sample_rate() == rate).then_some(rate)
+}
+
+/// Everything a disk recording needs once `stop_record` arrives.
+struct DiskSession {
+    stream_handles: Vec<Arc<Mutex<Option<StreamHandle>>>>,
+    stream_writers: Vec<WavWriterHandle>,
+    wav_paths: Vec<(PathBuf, u32)>,
+    recording_name: Option<String>,
+    format: RecordingFormat,
+    live: Option<LiveEncoder>,
+    /// Tracks the session's peak in the capture callbacks, for the silent-recording warning.
+    meter: Arc<LevelMeter>,
+    device_names: Vec<String>,
 }
 
 #[tauri::command]
 /// Record audio from devices; private sessions never enter the disk/ffmpeg path.
+/// `recording_format` picks the stored file type (`opus` when absent or unknown).
 pub async fn start_record(
     app_handle: AppHandle,
     devices: Vec<AudioDevice>,
     recording_name: Option<String>,
     no_audio_storage: Option<bool>,
+    recording_format: Option<String>,
 ) -> CommandResult<StartRecordOutcome> {
     if devices.is_empty() {
         return Err(eyre!("At least one audio device is required").into());
@@ -316,7 +331,32 @@ pub async fn start_record(
     if crate::private_audio::enabled(&app_handle)? || no_audio_storage.unwrap_or(false) {
         return Ok(crate::private_audio::start_record(app_handle, devices, recording_name)?);
     }
+    let format = RecordingFormat::parse(recording_format.as_deref());
     let host = cpal::default_host();
+
+    let mut outcome = StartRecordOutcome::default();
+    let mut device_names = Vec::new();
+    let mut sources = Vec::new();
+    for device in devices {
+        tracing::debug!("Recording from device: {}", device.name);
+        tracing::debug!("Device ID: {}", device.id);
+        let (device, config, fallback) = open_device(&host, &device)?;
+        device_names.push(device_name(&device));
+        outcome.device_fallbacks.extend(fallback);
+        sources.push((device, config));
+    }
+
+    let configs: Vec<_> = sources.iter().map(|(_, config)| config.clone()).collect();
+    let live = live_encoder_rate(&configs).and_then(|rate| {
+        let output = get_vibe_temp_folder().join(format!("{}.{}", random_string(10), format.extension()));
+        let channels: Vec<u16> = configs.iter().map(|config| config.channels()).collect();
+        LiveEncoder::start(rate, &channels, format, output)
+            .map_err(|error| tracing::warn!("live recording encoder unavailable, encoding after stop: {error:#}"))
+            .ok()
+    });
+    if live.is_none() {
+        tracing::info!("recording without live encoder; the stored file is encoded after stop");
+    }
 
     let mut wav_paths: Vec<(PathBuf, u32)> = Vec::new();
     let mut stream_handles = Vec::new();
@@ -324,18 +364,9 @@ pub async fn start_record(
     // One meter for the whole session: input and output streams both feed it, so the UI sees
     // the max of the two under a single throttled `record_level` event.
     let meter = Arc::new(LevelMeter::new(app_handle.clone()));
-    let mut outcome = StartRecordOutcome::default();
-    let mut device_names = Vec::new();
 
-    for device in devices {
-        tracing::debug!("Recording from device: {}", device.name);
-        tracing::debug!("Device ID: {}", device.id);
-
-        let (device, config, fallback) = open_device(&host, &device)?;
-        device_names.push(device_name(&device));
-        outcome.device_fallbacks.extend(fallback);
+    for (index, (device, config)) in sources.into_iter().enumerate() {
         let spec = wav_spec_from_config(&config);
-
         let path = get_vibe_temp_folder().join(format!("{}.wav", random_string(10)));
         tracing::debug!("WAV file path: {:?}", path);
         wav_paths.push((path.clone(), 0));
@@ -343,9 +374,9 @@ pub async fn start_record(
         let writer = hound::WavWriter::create(path.clone(), spec)?;
         let writer = Arc::new(Mutex::new(Some(writer)));
         stream_writers.push(writer.clone());
-        let writer_2 = writer.clone();
 
-        let stream = build_input_stream(&device, config, writer_2, meter.clone())?;
+        let sink = live.as_ref().map(|live| live.sink(index));
+        let stream = build_input_stream(&device, config, writer, sink, meter.clone())?;
         stream.play()?;
         tracing::debug!("Stream started playing");
 
@@ -354,134 +385,221 @@ pub async fn start_record(
         tracing::debug!("Stream handle created");
     }
 
-    let app_handle_clone = app_handle.clone();
-    let session_meter = meter.clone();
-    let stop = std::sync::Mutex::new(Some(move || {
-        for (i, stream_handle) in stream_handles.iter().enumerate() {
-            let stream_handle = stream_handle.lock().map_err(|e| eyre!("{:?}", e)).log_error();
-            if let Some(mut stream_handle) = stream_handle {
-                let stream = stream_handle.take();
-                let writer = stream_writers[i].clone();
-                if let Some(stream) = stream {
-                    tracing::debug!("Pausing stream");
-                    stream.0.pause().map_err(|e| eyre!("{:?}", e)).log_error();
-                    tracing::debug!("Finalizing writer");
-                    let writer = writer.lock().expect("lock").take().expect("writer");
-                    let written = writer.len();
-                    wav_paths[i] = (wav_paths[i].0.clone(), written);
-                    writer.finalize().map_err(|e| eyre!("{:?}", e)).log_error();
-                }
-            }
+    // Not `once`: tauri runs listeners under its handler lock and replays any event emitted
+    // meanwhile once the lock is released. A second stop_record (button, hotkey, shortcut)
+    // arriving before `once` had unlistened itself re-entered the spent handler and panicked,
+    // which aborts the app. Long recordings widened that window to the whole merge/normalize
+    // run. Now the session is taken exactly once and finalized off the event thread.
+    let session = Mutex::new(Some(DiskSession {
+        stream_handles,
+        stream_writers,
+        wav_paths,
+        recording_name,
+        format,
+        live,
+        meter: meter.clone(),
+        device_names,
+    }));
+    let listener_id = Arc::new(std::sync::OnceLock::new());
+    let listener_app = app_handle.clone();
+    let own_id = listener_id.clone();
+    let id = app_handle.listen("stop_record", move |_event| {
+        let Some(session) = session.lock().unwrap_or_else(|e| e.into_inner()).take() else {
+            return;
+        };
+        if let Some(id) = own_id.get() {
+            listener_app.unlisten(*id);
         }
-
-        let Some(best_raw) = best_raw_capture(&wav_paths) else {
-            tracing::error!("Recording stopped without any capture files");
-            app_handle_clone
+        // Whoever asked (button, shortcut, meeting prompt), the UI shows "saving" from here
+        // until record_finish / record_error.
+        listener_app
+            .emit("record_stopping", ())
+            .map_err(|e| eyre!("{e:?}"))
+            .log_error();
+        let app_handle = listener_app.clone();
+        let spawned = std::thread::Builder::new()
+            .name("record-finish".into())
+            .spawn(move || finish_disk_recording(app_handle, session));
+        if let Err(error) = spawned {
+            tracing::error!("Failed to start recording finalization: {error}");
+            listener_app
                 .emit(
                     "record_error",
-                    json!({"message": "Recording stopped without any captured audio"}),
+                    json!({ "message": format!("Failed to finalize recording: {error}") }),
                 )
                 .map_err(|e| eyre!("{e:?}"))
                 .log_error();
-            crate::meeting_prompt::recording_stopped(&app_handle_clone);
-            return;
-        };
-
-        let (dst, mut warning) = if wav_paths.len() > 1 && wav_paths[0].1 > 0 && wav_paths[1].1 > 0 {
-            let dst = get_vibe_temp_folder().join(format!("{}.wav", random_string(10)));
-            tracing::debug!("Merging WAV files");
-            match crate::ffmpeg::merge_wav_files(wav_paths[0].0.clone(), wav_paths[1].0.clone(), dst.clone()) {
-                Ok(()) if dst.is_file() => (dst, None),
-                Ok(()) => {
-                    std::fs::remove_file(&dst).ok();
-                    let message = "Audio merge produced no output; preserving the best raw capture".to_string();
-                    tracing::error!("{message}");
-                    (best_raw, Some(message))
-                }
-                Err(error) => {
-                    std::fs::remove_file(&dst).ok();
-                    let message = format!("Audio merge failed; preserving the best raw capture: {error:#}");
-                    tracing::error!("{message}");
-                    (best_raw, Some(message))
-                }
-            }
-        } else {
-            (best_raw, None)
-        };
-        // Peak was tracked in the capture callbacks, so this costs nothing at stop time.
-        if let Some(message) = silence_warning(session_meter.session_peak(), &device_names) {
-            tracing::warn!("{message}");
-            warning = Some(match warning {
-                Some(previous) => format!("{message}; {previous}"),
-                None => message,
-            });
+            crate::meeting_prompt::recording_stopped(&listener_app);
         }
-
-        tracing::debug!("Emitting record_finish event");
-        let recording_stem = recording_name
-            .as_deref()
-            .map(crate::cmd::files::sanitize_filename_stem)
-            .filter(|name| !name.is_empty())
-            .unwrap_or_else(get_local_time);
-        let temp_dir = get_vibe_temp_folder();
-        let normalized = crate::cmd::files::available_path(&temp_dir, &recording_stem, "wav");
-        let output = match crate::ffmpeg::normalize(dst.clone(), normalized.clone(), None) {
-            Ok(()) if normalized.is_file() => normalized,
-            result => {
-                std::fs::remove_file(&normalized).ok();
-                let detail = match result {
-                    Ok(()) => "normalization produced no output".to_string(),
-                    Err(error) => format!("{error:#}"),
-                };
-                let message = format!("Audio normalization failed; preserving the unnormalized capture: {detail}");
-                tracing::error!("{message}");
-                warning = Some(match warning {
-                    Some(previous) => format!("{previous}; {message}"),
-                    None => message,
-                });
-
-                let recovery = crate::cmd::files::available_path(&temp_dir, &recording_stem, "wav");
-                if dst != recovery && std::fs::rename(&dst, &recovery).is_ok() {
-                    recovery
-                } else {
-                    dst.clone()
-                }
-            }
-        };
-
-        let intermediates = wav_paths.into_iter().map(|(path, _)| path).chain(std::iter::once(dst));
-        remove_recording_intermediates(intermediates, &output);
-        // A recording this process made just finished: the one thing that lets `type_text` run.
-        crate::cmd::app::recording_finished();
-        app_handle_clone
-            .emit(
-                "record_finish",
-                json!({
-                    "path": output.to_string_lossy(),
-                    "name": output.file_name().map(|n| n.to_str().unwrap_or_default()).unwrap_or_default(),
-                    "warning": warning,
-                }),
-            )
-            .map_err(|e| eyre!("{e:?}"))
-            .log_error();
-        crate::meeting_prompt::recording_stopped(&app_handle_clone);
-    }));
-    // Not `once`: its handler panics if `stop_record` arrives again while the first stop is still
-    // merging (a double click, or the button and the shortcut together), and a release build
-    // aborts on that panic. A repeat stop is simply ignored here.
-    let listener_handle = app_handle.clone();
-    app_handle.listen("stop_record", move |event| {
-        let Some(stop) = stop.lock().ok().and_then(|mut stop| stop.take()) else {
-            tracing::debug!("Ignoring a repeated stop_record (event {})", event.id());
-            return;
-        };
-        tracing::debug!("stop_record received (event {})", event.id());
-        listener_handle.unlisten(event.id());
-        stop();
     });
+    let _ = listener_id.set(id);
 
     crate::meeting_prompt::recording_started(&app_handle);
     Ok(outcome)
+}
+
+fn join_warning(warning: Option<String>, message: String) -> Option<String> {
+    Some(match warning {
+        Some(previous) => format!("{previous}; {message}"),
+        None => message,
+    })
+}
+
+/// Stop the streams, finalize the WAVs, then publish the stored file: the live encoder's
+/// output when it kept up, otherwise a one-pass transcode of the WAVs, otherwise the best raw
+/// capture. Runs on its own thread so tauri's event dispatch is never blocked.
+fn finish_disk_recording(app_handle: AppHandle, session: DiskSession) {
+    let started = Instant::now();
+    let DiskSession {
+        stream_handles,
+        stream_writers,
+        mut wav_paths,
+        recording_name,
+        format,
+        live,
+        meter,
+        device_names,
+    } = session;
+    for (i, stream_handle) in stream_handles.iter().enumerate() {
+        let stream_handle = stream_handle.lock().map_err(|e| eyre!("{:?}", e)).log_error();
+        if let Some(mut stream_handle) = stream_handle {
+            let stream = stream_handle.take();
+            let writer = stream_writers[i].clone();
+            if let Some(stream) = stream {
+                stream.0.pause().map_err(|e| eyre!("{:?}", e)).log_error();
+                drop(stream);
+                let Some(writer) = writer.lock().unwrap_or_else(|e| e.into_inner()).take() else {
+                    continue;
+                };
+                let written = writer.len();
+                wav_paths[i] = (wav_paths[i].0.clone(), written);
+                writer.finalize().map_err(|e| eyre!("{:?}", e)).log_error();
+            }
+        }
+    }
+    tracing::info!("recording stop: streams closed and WAVs finalized in {:?}", started.elapsed());
+
+    let live_output = live.map(|live| {
+        let flushed = Instant::now();
+        let result = live.finish();
+        tracing::info!("recording stop: live encoder flushed in {:?}", flushed.elapsed());
+        result
+    });
+
+    let Some(best_raw) = best_raw_capture(&wav_paths) else {
+        tracing::error!("Recording stopped without any capture files");
+        if let Some(Ok(path)) = live_output {
+            std::fs::remove_file(path).ok();
+        }
+        app_handle
+            .emit(
+                "record_error",
+                json!({"message": "Recording stopped without any captured audio"}),
+            )
+            .map_err(|e| eyre!("{e:?}"))
+            .log_error();
+        crate::meeting_prompt::recording_stopped(&app_handle);
+        return;
+    };
+
+    let recording_stem = recording_name
+        .as_deref()
+        .map(crate::cmd::files::sanitize_filename_stem)
+        .filter(|name| !name.is_empty())
+        .unwrap_or_else(get_local_time);
+    let temp_dir = get_vibe_temp_folder();
+    let captured: Vec<PathBuf> = wav_paths
+        .iter()
+        .filter(|(_, samples)| *samples > 0)
+        .map(|(path, _)| path.clone())
+        .collect();
+    let mut warning = None;
+
+    let mut output = match live_output {
+        Some(Ok(path)) if !captured.is_empty() => {
+            let named = crate::cmd::files::available_path(&temp_dir, &recording_stem, format.extension());
+            Some(if std::fs::rename(&path, &named).is_ok() { named } else { path })
+        }
+        Some(Ok(path)) => {
+            std::fs::remove_file(path).ok();
+            None
+        }
+        Some(Err(error)) => {
+            tracing::error!("live recording encoder failed, transcoding the captures: {error:#}");
+            None
+        }
+        None => None,
+    };
+
+    if output.is_none() && !captured.is_empty() {
+        let transcoded = Instant::now();
+        // The chosen format first; WAV when its encoder is missing from this ffmpeg build;
+        // the single best capture when mixing itself fails.
+        let mut attempts = vec![(captured.clone(), format)];
+        if format != RecordingFormat::Wav {
+            attempts.push((captured.clone(), RecordingFormat::Wav));
+        }
+        if captured.len() > 1 {
+            attempts.push((vec![best_raw.clone()], RecordingFormat::Wav));
+        }
+        for (inputs, attempt_format) in attempts {
+            let target = crate::cmd::files::available_path(&temp_dir, &recording_stem, attempt_format.extension());
+            match crate::ffmpeg::transcode_recording(&inputs, attempt_format.output_args(), &target) {
+                Ok(()) => {
+                    output = Some(target);
+                    break;
+                }
+                Err(error) => {
+                    std::fs::remove_file(&target).ok();
+                    let message = format!(
+                        "Saving the recording as {} failed: {error:#}",
+                        attempt_format.extension().to_uppercase()
+                    );
+                    tracing::error!("{message}");
+                    warning = join_warning(warning, message);
+                }
+            }
+        }
+        tracing::info!("recording stop: post-stop transcode took {:?}", transcoded.elapsed());
+    }
+
+    let output = output.unwrap_or_else(|| {
+        let message = "preserving the unprocessed capture".to_string();
+        tracing::error!("Recording processing failed; {message}");
+        warning = join_warning(warning.take(), message);
+        let recovery = crate::cmd::files::available_path(&temp_dir, &recording_stem, "wav");
+        if std::fs::rename(&best_raw, &recovery).is_ok() {
+            recovery
+        } else {
+            best_raw.clone()
+        }
+    });
+
+    // Peak was tracked in the capture callbacks, so this costs nothing at stop time.
+    if let Some(message) = silence_warning(meter.session_peak(), &device_names) {
+        tracing::warn!("{message}");
+        warning = Some(match warning {
+            Some(previous) => format!("{message}; {previous}"),
+            None => message,
+        });
+    }
+
+    crate::recording_encoder::remove_except(wav_paths.into_iter().map(|(path, _)| path), &output);
+    // A recording this process made just finished: the one thing that lets `type_text` run.
+    crate::cmd::app::recording_finished();
+    tracing::info!("recording stop: finished in {:?} -> {}", started.elapsed(), output.display());
+    app_handle
+        .emit(
+            "record_finish",
+            json!({
+                "path": output.to_string_lossy(),
+                "name": output.file_name().map(|n| n.to_str().unwrap_or_default()).unwrap_or_default(),
+                "warning": warning,
+            }),
+        )
+        .map_err(|e| eyre!("{e:?}"))
+        .log_error();
+    crate::meeting_prompt::recording_stopped(&app_handle);
 }
 
 /// Opens a requested device by its stable id (the system default when it is gone) with its capture config.
@@ -533,6 +651,7 @@ fn build_input_stream_typed<T>(
     device: &Device,
     config: SupportedStreamConfig,
     writer: WavWriterHandle,
+    live: Option<LiveSink>,
     meter: Arc<LevelMeter>,
 ) -> Result<Stream>
 where
@@ -543,7 +662,10 @@ where
         config.into(),
         move |data: &[T], _: &_| {
             meter.push(buffer_peak(data));
-            write_input_data::<T, T>(data, &writer)
+            write_input_data::<T, T>(data, &writer);
+            if let Some(live) = &live {
+                live.push(data);
+            }
         },
         |err| tracing::error!("An error occurred on stream: {}", err),
         None,
@@ -555,13 +677,14 @@ fn build_input_stream(
     device: &Device,
     config: SupportedStreamConfig,
     writer: WavWriterHandle,
+    live: Option<LiveSink>,
     meter: Arc<LevelMeter>,
 ) -> Result<Stream> {
     match config.sample_format() {
-        cpal::SampleFormat::I8 => build_input_stream_typed::<i8>(device, config, writer, meter),
-        cpal::SampleFormat::I16 => build_input_stream_typed::<i16>(device, config, writer, meter),
-        cpal::SampleFormat::I32 => build_input_stream_typed::<i32>(device, config, writer, meter),
-        cpal::SampleFormat::F32 => build_input_stream_typed::<f32>(device, config, writer, meter),
+        cpal::SampleFormat::I8 => build_input_stream_typed::<i8>(device, config, writer, live, meter),
+        cpal::SampleFormat::I16 => build_input_stream_typed::<i16>(device, config, writer, live, meter),
+        cpal::SampleFormat::I32 => build_input_stream_typed::<i32>(device, config, writer, live, meter),
+        cpal::SampleFormat::F32 => build_input_stream_typed::<f32>(device, config, writer, live, meter),
         sample_format => bail!("Unsupported sample format '{}'", sample_format),
     }
 }

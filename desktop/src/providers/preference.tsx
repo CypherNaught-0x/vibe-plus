@@ -16,6 +16,7 @@ import { readConfig } from '~/lib/config-store'
 import { message } from '@tauri-apps/plugin-dialog'
 import { invoke } from '@tauri-apps/api/core'
 import type { ModelMetadata } from '~/lib/model'
+import { defaultRecordingFormat, toRecordingFormat, type RecordingFormat } from '~/lib/recording-format'
 
 /** Which build of the engine's CPU backend to run; `auto` lets CPUID decide. */
 export type CpuVariant = 'auto' | 'avx2' | 'baseline' | 'sse'
@@ -147,6 +148,9 @@ export interface Preference {
 	/** Manual Audio8 live capture is RAM-only and benchmark-gated. */
 	liveTranscription: boolean
 	setLiveTranscription: ModifyState<boolean>
+	/** File type of stored disk recordings (Opus unless chosen otherwise). */
+	recordingFormat: RecordingFormat
+	setRecordingFormat: ModifyState<RecordingFormat>
 }
 
 // Create the context
@@ -288,6 +292,8 @@ export function PreferenceProvider({ children }: { children: ReactNode }) {
 	const [meetingDetectionEnabled, setMeetingDetectionEnabled] = usePersisted<boolean>(CONFIG_KEYS.meetingDetectionEnabled, false)
 	const [autoTranscribeAfterRecording, setAutoTranscribeAfterRecording] = usePersisted<boolean>(CONFIG_KEYS.autoTranscribeAfterRecording, false)
 	const [liveTranscription, setLiveTranscription] = usePersisted<boolean>(CONFIG_KEYS.liveTranscription, false)
+	const [storedRecordingFormat, setRecordingFormat] = usePersisted<RecordingFormat>(CONFIG_KEYS.recordingFormat, defaultRecordingFormat)
+	const recordingFormat = toRecordingFormat(storedRecordingFormat)
 
 	const [analyticsEnabled, setAnalyticsEnabledLocal] = useState(true)
 
@@ -396,6 +402,7 @@ export function PreferenceProvider({ children }: { children: ReactNode }) {
 		setMeetingDetectionEnabled(false)
 		setAutoTranscribeAfterRecording(false)
 		setLiveTranscription(false)
+		setRecordingFormat(defaultRecordingFormat)
 		setNoAudioStorage(false)
 		setDeleteTranscriptAfterAi(false)
 		message(m.successAction())
@@ -489,6 +496,8 @@ export function PreferenceProvider({ children }: { children: ReactNode }) {
 		setAutoTranscribeAfterRecording,
 		liveTranscription,
 		setLiveTranscription,
+		recordingFormat,
+		setRecordingFormat,
 	}
 
 	return <PreferenceContext.Provider value={preference}>{children}</PreferenceContext.Provider>
