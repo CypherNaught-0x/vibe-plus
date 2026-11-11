@@ -138,7 +138,7 @@ function runTranscribe(
 			return
 		}
 
-		const diarize = typeof options.diarize_model === 'string' && options.diarize_model.length > 0
+		const diarize = options.diarize === true || (typeof options.diarize_model === 'string' && options.diarize_model.length > 0)
 		// The real engines time every word; share each line's time out evenly so the mock carries them too.
 		const segments: Segment[] = sampleSegments.map((segment, index) => {
 			const texts = segment.text.split(' ')

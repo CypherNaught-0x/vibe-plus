@@ -82,6 +82,9 @@ pub struct Segment {
     pub no_speech_prob: f32,
     /// Word timings, empty when the engine has none for this segment.
     pub words: Vec<Word>,
+    /// Zero-based speaker, from an engine that tells speakers apart itself
+    /// (`TranscribeOptions::diarize`); `None` from every other engine.
+    pub speaker: Option<usize>,
 }
 
 /// One word of a [`Segment`]. Times are centiseconds. The text keeps its

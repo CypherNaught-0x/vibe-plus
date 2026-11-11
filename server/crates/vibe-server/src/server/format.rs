@@ -126,6 +126,7 @@ mod tests {
             text: " Hello world.".into(),
             no_speech_prob: 0.0,
             words,
+            speaker: None,
         }
     }
 

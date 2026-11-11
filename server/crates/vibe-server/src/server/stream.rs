@@ -30,6 +30,7 @@ pub(super) fn stream_transcription(
     form: HashMap<String, String>,
     stable_timestamps: bool,
     vad_model_path: Option<String>,
+    native_diarization: bool,
 ) -> Result<Response, Box<Response>> {
     if model.ctx.is_none() {
         return Err(Box::new(error(
@@ -105,6 +106,7 @@ pub(super) fn stream_transcription(
             stable_timestamps,
             vad_model_path,
             !segment_diar_segments.is_empty(),
+            native_diarization,
         );
 
         let result = ctx.transcribe_stream(

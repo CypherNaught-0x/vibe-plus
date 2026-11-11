@@ -7,7 +7,7 @@ import { m } from '~/paraglide/messages.js'
 import * as config from '~/lib/config'
 import type { ModelIntegrity } from '~/lib/config'
 import { bundledHelperModel } from '~/lib/model-catalog-source'
-import { isModelFileUsable } from '~/lib/model'
+import { hasNativeDiarization, isModelFileUsable } from '~/lib/model'
 import { usePreferenceProvider } from '~/providers/preference'
 import { useToastProvider } from '~/providers/toast'
 
@@ -69,6 +69,11 @@ export function useModelGates() {
 		async (checked: boolean) => {
 			if (!checked) {
 				preference.setDiarizeEnabled(false)
+				return
+			}
+			// A model that recognizes speakers itself needs nothing downloaded.
+			if (hasNativeDiarization(preference.modelMetadata?.capabilities)) {
+				preference.setDiarizeEnabled(true)
 				return
 			}
 			try {
