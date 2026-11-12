@@ -8,6 +8,10 @@ Project-specific rules [`docs/PROJECT.md`](docs/PROJECT.md).
 - Check UI changes in the real app yourself: `chore e2e-build`, `chore e2e-app`, `chore e2e …` — see [`docs/E2E.md`](docs/E2E.md)
 - JS: `pnpm` only; Python: `uv` standalone scripts (`uv run`)
 
+## README
+
+When a user-facing feature lands, add or update its bullet under "About vibe++" in `README.md`, in the same commit.
+
 ## Plans & validation
 
 The root folder is holy: put all plan and scratch files under `plans/`, never in the root.
