@@ -70,8 +70,7 @@ jobs:
             matrix:
                 # The runners and flags of server-release.yml, so the build matches upstream's.
                 include:
-                    # The Apple silicon server is built in app-macos, on the one macOS runner the
-                    # fork gets at a time.
+                    # The Apple silicon server is built in app-macos.
                     - runner: macos-15-intel
                       triple: x86_64-apple-darwin
                       cargo_flags: --no-default-features
@@ -183,13 +182,15 @@ jobs:
                   projectPath: ./desktop
                   tauriScript: pnpm exec tauri
 
-    # Both macOS apps on one runner, one after the other: the fork gets one macOS runner at a time,
-    # and a second macOS job waiting beside the first was cancelled unassigned after 15 minutes.
-    # The Apple silicon server is built here too; the Intel one comes from its own job.
+    # Both macOS apps on one Apple silicon runner, one after the other, so a release waits for only
+    # one of these scarce runners. The Apple silicon server is built here; the Intel one comes from
+    # its own job.
     app-macos:
         needs: [prepare, server]
         timeout-minutes: 150
-        runs-on: macos-latest
+        # macos-14, not macos-latest (macos-15): the macos-15 Apple silicon pool kept leaving the
+        # job unassigned until GitHub cancelled it.
+        runs-on: macos-14
         env:
             GITHUB_TOKEN: ${{ github.token }}
             TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
