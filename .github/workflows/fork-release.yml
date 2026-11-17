@@ -41,14 +41,15 @@ jobs:
                   GH_TOKEN: ${{ github.token }}
                   TAG: v${{ steps.version.outputs.version }}
               run: |
-                  existing=$(gh api "repos/$GITHUB_REPOSITORY/releases" --paginate --jq ".[] | select(.tag_name == \"$TAG\") | [.id, .draft] | @tsv" | head -1)
+                  # Drafts can lose their tag name (GitHub shows them as untagged-…), so they are matched by name too.
+                  existing=$(gh api "repos/$GITHUB_REPOSITORY/releases" --paginate --jq ".[] | select(.tag_name == \"$TAG\" or .name == \"vibe++ $TAG\") | [.id, .draft] | @tsv" | head -1)
                   if [ -n "$existing" ]; then
                       read -r id draft <<< "$existing"
                       if [ "$draft" != "true" ]; then
                           echo "$TAG is already released; nothing to do"
                           exit 0
                       fi
-                      gh api -X PATCH "repos/$GITHUB_REPOSITORY/releases/$id" -f target_commitish="$GITHUB_SHA" --silent
+                      gh api -X PATCH "repos/$GITHUB_REPOSITORY/releases/$id" -f tag_name="$TAG" -f target_commitish="$GITHUB_SHA" --silent
                   else
                       notes="What vibe++ adds on top of upstream: https://github.com/$GITHUB_REPOSITORY#about-vibe
 
