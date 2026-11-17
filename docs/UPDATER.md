@@ -1,5 +1,11 @@
 # Updater
 
+> **vibe++:** the fork updates from the `latest.json` of its latest GitHub release
+> (`https://github.com/CypherNaught-0x/vibe-plus/releases/latest/download/latest.json`), signed with
+> its own updater key (`~/.tauri/vibe-plus.key` locally, secret `TAURI_PRIVATE_KEY` in CI). Both
+> channels read that file. `.github/workflows/fork-release.yml` publishes it on every version bump;
+> the website channel files below are upstream's.
+
 Vibe updates from two channel files on the website, not from GitHub's latest release:
 
 - `https://thewh1teagle.github.io/vibe/updater/stable.json`

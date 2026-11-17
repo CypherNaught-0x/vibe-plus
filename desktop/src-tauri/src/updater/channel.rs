@@ -1,15 +1,15 @@
-//! Which `updater/<channel>.json` the app follows. See `docs/UPDATER.md`.
+//! Which update feed the app follows. See `docs/UPDATER.md`.
 //!
-//! The app reads the channel files from the website rather than GitHub's latest release. Each is
-//! the `latest.json` a release build produced. The plugin's own `check()` only knows the endpoint
-//! in `tauri.conf.json`, so the channel is applied here.
+//! vibe++ updates from the `latest.json` of the fork's latest GitHub release, signed with the
+//! fork's own key. It publishes no beta builds, so both channels read the same file. The plugin's
+//! own `check()` only knows the endpoint in `tauri.conf.json`, so the channel is applied here.
 
 use serde::Deserialize;
 use tauri::AppHandle;
 use tauri_plugin_store::StoreExt;
 use tauri_plugin_updater::{Update, UpdaterExt};
 
-const CHANNELS_URL: &str = "https://thewh1teagle.github.io/vibe/updater";
+const LATEST_URL: &str = "https://github.com/CypherNaught-0x/vibe-plus/releases/latest/download/latest.json";
 
 /// Config keys, shared with `desktop/src/lib/config-keys.ts`.
 const CHANNEL_KEY: &str = "general.updateChannel";
@@ -25,11 +25,9 @@ pub enum Channel {
 
 impl Channel {
     fn url(self) -> String {
-        let name = match self {
-            Channel::Stable => "stable",
-            Channel::Beta => "beta",
-        };
-        format!("{CHANNELS_URL}/{name}.json")
+        match self {
+            Channel::Stable | Channel::Beta => LATEST_URL.to_string(),
+        }
     }
 }
 
@@ -73,9 +71,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn channels_point_at_their_own_file() {
-        assert!(Channel::Stable.url().ends_with("/updater/stable.json"));
-        assert!(Channel::Beta.url().ends_with("/updater/beta.json"));
+    fn channels_follow_the_forks_latest_release() {
+        assert_eq!(Channel::Stable.url(), LATEST_URL);
+        assert_eq!(Channel::Beta.url(), LATEST_URL);
         assert_eq!(serde_json::from_str::<Channel>("\"beta\"").unwrap(), Channel::Beta);
         assert!(serde_json::from_str::<Channel>("\"nightly\"").is_err());
     }

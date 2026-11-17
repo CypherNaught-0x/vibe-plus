@@ -1,8 +1,9 @@
 name: Release vibe++
 
 # A version bump on main releases it: the app on every platform, with the server built from
-# this tree (the fork changes it), published as v<version>. Unsigned, and without updater
-# artifacts: the updater key and the signing identities belong to upstream.
+# this tree (the fork changes it), published as v<version> and marked latest, which is where the
+# app's updater looks (desktop/src-tauri/src/updater/channel.rs). Update bundles are signed with
+# the fork's updater key (secret TAURI_PRIVATE_KEY); the apps themselves are not code-signed.
 
 on:
     push:
@@ -47,12 +48,16 @@ jobs:
                           echo "$TAG is already released; nothing to do"
                           exit 0
                       fi
+                      gh api -X PATCH "repos/$GITHUB_REPOSITORY/releases/$id" -f target_commitish="$GITHUB_SHA" --silent
                   else
-                      gh release create "$TAG" --draft --target "$GITHUB_SHA" --title "vibe++ $TAG" --generate-notes \
-                          --notes "What vibe++ adds on top of upstream: https://github.com/$GITHUB_REPOSITORY#about-vibe
+                      notes="What vibe++ adds on top of upstream: https://github.com/$GITHUB_REPOSITORY#about-vibe
 
-                  Builds are not signed. On macOS, right-click the app and choose Open the first time."
-                      id=$(gh api "repos/$GITHUB_REPOSITORY/releases" --paginate --jq ".[] | select(.tag_name == \"$TAG\") | .id" | head -1)
+                  The apps are not code-signed. On macOS, right-click the app and choose Open the first time."
+                      generated=$(gh api "repos/$GITHUB_REPOSITORY/releases/generate-notes" -f tag_name="$TAG" -f target_commitish="$GITHUB_SHA" --jq .body)
+                      id=$(gh api "repos/$GITHUB_REPOSITORY/releases" -f tag_name="$TAG" -f target_commitish="$GITHUB_SHA" \
+                          -f name="vibe++ $TAG" -f body="$notes
+
+                  $generated" -F draft=true --jq .id)
                   fi
                   echo "id=$id" >> "$GITHUB_OUTPUT"
 
@@ -170,15 +175,16 @@ jobs:
                   if [ "$RUNNER_OS" = "Windows" ]; then exe=.exe; fi
                   mv -f "target/server-build/vibe-server$exe" "desktop/src-tauri/binaries/vibe-server-${{ matrix.triple }}$exe"
                   chmod 755 "desktop/src-tauri/binaries/vibe-server-${{ matrix.triple }}$exe"
-                  echo '{"bundle":{"createUpdaterArtifacts":false}}' > desktop/src-tauri/tauri.release.conf.json
 
             - name: Build and upload
               uses: tauri-apps/tauri-action@v0
               env:
                   GITHUB_TOKEN: ${{ github.token }}
+                  TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
+                  TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
               with:
                   releaseId: ${{ needs.prepare.outputs.release-id }}
-                  args: --target ${{ matrix.triple }} --config src-tauri/tauri.release.conf.json
+                  args: --target ${{ matrix.triple }}
                   projectPath: ./desktop
                   tauriScript: pnpm exec tauri
 
