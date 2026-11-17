@@ -786,5 +786,7 @@
 	"folderCreateFailed": "לא ניתן ליצור תיקייה בשם הזה.",
 	"emptyFolder": "ריקה",
 	"savingToFolder": "שומר ל-{name}",
-	"stopSavingToFolder": "שמור תמלולים חדשים מחוץ לתיקיות"
+	"stopSavingToFolder": "שמור תמלולים חדשים מחוץ לתיקיות",
+	"regenerateTitle": "יצירת כותרת מחדש",
+	"regenerateTitleFailed": "לא ניתן ליצור את הכותרת מחדש"
 }

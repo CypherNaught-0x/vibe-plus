@@ -786,5 +786,7 @@
 	"folderCreateFailed": "इस नाम का फ़ोल्डर नहीं बनाया जा सका।",
 	"emptyFolder": "खाली",
 	"savingToFolder": "{name} में सहेजा जा रहा है",
-	"stopSavingToFolder": "नए ट्रांसक्रिप्ट फ़ोल्डरों के बाहर सहेजें"
+	"stopSavingToFolder": "नए ट्रांसक्रिप्ट फ़ोल्डरों के बाहर सहेजें",
+	"regenerateTitle": "शीर्षक फिर से बनाएँ",
+	"regenerateTitleFailed": "शीर्षक फिर से नहीं बनाया जा सका"
 }

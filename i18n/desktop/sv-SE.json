@@ -786,5 +786,7 @@
 	"folderCreateFailed": "Det gick inte att skapa en mapp med det namnet.",
 	"emptyFolder": "Tom",
 	"savingToFolder": "Sparar i {name}",
-	"stopSavingToFolder": "Spara nya transkriberingar utanför mappar"
+	"stopSavingToFolder": "Spara nya transkriberingar utanför mappar",
+	"regenerateTitle": "Generera titel igen",
+	"regenerateTitleFailed": "Det gick inte att generera titeln igen"
 }

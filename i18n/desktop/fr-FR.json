@@ -786,5 +786,7 @@
 	"folderCreateFailed": "Impossible de créer un dossier avec ce nom.",
 	"emptyFolder": "Vide",
 	"savingToFolder": "Enregistrement dans {name}",
-	"stopSavingToFolder": "Enregistrer les nouvelles transcriptions hors des dossiers"
+	"stopSavingToFolder": "Enregistrer les nouvelles transcriptions hors des dossiers",
+	"regenerateTitle": "Régénérer le titre",
+	"regenerateTitleFailed": "Impossible de régénérer le titre"
 }

@@ -786,5 +786,7 @@
 	"folderCreateFailed": "その名前のフォルダを作成できませんでした。",
 	"emptyFolder": "空",
 	"savingToFolder": "{name}に保存中",
-	"stopSavingToFolder": "新しい文字起こしをフォルダの外に保存"
+	"stopSavingToFolder": "新しい文字起こしをフォルダの外に保存",
+	"regenerateTitle": "タイトルを再生成",
+	"regenerateTitleFailed": "タイトルを再生成できませんでした"
 }

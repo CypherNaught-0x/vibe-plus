@@ -786,5 +786,7 @@
 	"folderCreateFailed": "Папката с това име не можа да бъде създадена.",
 	"emptyFolder": "Празна",
 	"savingToFolder": "Запазване в {name}",
-	"stopSavingToFolder": "Запазване на нови транскрипции извън папките"
+	"stopSavingToFolder": "Запазване на нови транскрипции извън папките",
+	"regenerateTitle": "Генерирай заглавието отново",
+	"regenerateTitleFailed": "Заглавието не можа да бъде генерирано отново"
 }

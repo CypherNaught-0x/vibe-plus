@@ -786,5 +786,7 @@
 	"folderCreateFailed": "Không thể tạo thư mục với tên này.",
 	"emptyFolder": "Trống",
 	"savingToFolder": "Đang lưu vào {name}",
-	"stopSavingToFolder": "Lưu bản chép lời mới bên ngoài thư mục"
+	"stopSavingToFolder": "Lưu bản chép lời mới bên ngoài thư mục",
+	"regenerateTitle": "Tạo lại tiêu đề",
+	"regenerateTitleFailed": "Không thể tạo lại tiêu đề"
 }

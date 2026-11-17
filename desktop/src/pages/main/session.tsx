@@ -21,7 +21,7 @@ import { usePreferenceProvider, type Preference } from '~/providers/preference'
 import { useAudioDownload } from '~/pages/home/hooks/use-audio-download'
 import { useRecording } from '~/pages/home/hooks/use-recording'
 import { useDropTarget } from './hooks/use-drop-target'
-import { useAutoTitle } from './hooks/use-auto-title'
+import { useAutoTitle, type Titles } from './hooks/use-auto-title'
 import { useSummaries, type Summaries } from './hooks/use-summaries'
 import { useTranscribeQueue, type TranscribeQueue } from './hooks/use-transcribe-queue'
 import { useLiveRecordingProject } from './hooks/use-live-recording-project'
@@ -37,6 +37,8 @@ export interface Session {
 	queue: TranscribeQueue
 	/** AI summaries of finished transcripts (settings → Summarize). */
 	summaries: Summaries
+	/** AI titles: written after transcription, and on request from a project's menu. */
+	titles: Titles
 	preference: Preference
 	dragging: boolean
 	panel: IdlePanel
@@ -66,7 +68,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 	const { setState: setErrorModal } = useContext(ErrorModalContext)
 	const queue = useTranscribeQueue()
 	const summaries = useSummaries(queue)
-	useAutoTitle(queue)
+	const titles = useAutoTitle(queue)
 	const [panel, setPanel] = useState<IdlePanel>('none')
 	const [collectingFolder, setCollectingFolder] = useState(false)
 	const [recordElapsed, setRecordElapsed] = useState(0)
@@ -373,6 +375,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 			mode,
 			queue,
 			summaries,
+			titles,
 			preference,
 			dragging,
 			panel,
@@ -384,7 +387,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 			browse,
 			startNew,
 		}),
-		[mode, queue, summaries, preference, dragging, panel, recording, recordElapsed, link, collectingFolder, browse, startNew],
+		[mode, queue, summaries, titles, preference, dragging, panel, recording, recordElapsed, link, collectingFolder, browse, startNew],
 	)
 
 	return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>

@@ -786,5 +786,7 @@
 	"folderCreateFailed": "Bu adla klasör oluşturulamadı.",
 	"emptyFolder": "Boş",
 	"savingToFolder": "{name} klasörüne kaydediliyor",
-	"stopSavingToFolder": "Yeni transkriptleri klasörlerin dışında kaydet"
+	"stopSavingToFolder": "Yeni transkriptleri klasörlerin dışında kaydet",
+	"regenerateTitle": "Başlığı yeniden oluştur",
+	"regenerateTitleFailed": "Başlık yeniden oluşturulamadı"
 }

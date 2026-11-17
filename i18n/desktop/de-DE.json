@@ -786,5 +786,7 @@
 	"folderCreateFailed": "Ein Ordner mit diesem Namen konnte nicht erstellt werden.",
 	"emptyFolder": "Leer",
 	"savingToFolder": "Speichern in {name}",
-	"stopSavingToFolder": "Neue Transkriptionen außerhalb von Ordnern speichern"
+	"stopSavingToFolder": "Neue Transkriptionen außerhalb von Ordnern speichern",
+	"regenerateTitle": "Titel neu erstellen",
+	"regenerateTitleFailed": "Titel konnte nicht neu erstellt werden"
 }

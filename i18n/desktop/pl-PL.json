@@ -786,5 +786,7 @@
 	"folderCreateFailed": "Nie udało się utworzyć folderu o tej nazwie.",
 	"emptyFolder": "Pusty",
 	"savingToFolder": "Zapisywanie w: {name}",
-	"stopSavingToFolder": "Zapisuj nowe transkrypcje poza folderami"
+	"stopSavingToFolder": "Zapisuj nowe transkrypcje poza folderami",
+	"regenerateTitle": "Wygeneruj tytuł ponownie",
+	"regenerateTitleFailed": "Nie udało się ponownie wygenerować tytułu"
 }

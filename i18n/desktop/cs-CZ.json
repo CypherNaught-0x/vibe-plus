@@ -786,5 +786,7 @@
 	"folderCreateFailed": "Složku s tímto názvem se nepodařilo vytvořit.",
 	"emptyFolder": "Prázdná",
 	"savingToFolder": "Ukládání do: {name}",
-	"stopSavingToFolder": "Ukládat nové přepisy mimo složky"
+	"stopSavingToFolder": "Ukládat nové přepisy mimo složky",
+	"regenerateTitle": "Znovu vygenerovat název",
+	"regenerateTitleFailed": "Název se nepodařilo znovu vygenerovat"
 }

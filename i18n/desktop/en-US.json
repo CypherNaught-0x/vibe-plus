@@ -786,5 +786,7 @@
 	"folderCreateFailed": "Couldn't create a folder with that name.",
 	"emptyFolder": "Empty",
 	"savingToFolder": "Saving to {name}",
-	"stopSavingToFolder": "Save new transcriptions outside folders"
+	"stopSavingToFolder": "Save new transcriptions outside folders",
+	"regenerateTitle": "Regenerate title",
+	"regenerateTitleFailed": "Could not regenerate the title"
 }

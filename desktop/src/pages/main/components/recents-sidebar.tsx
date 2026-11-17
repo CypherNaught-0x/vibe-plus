@@ -174,9 +174,10 @@ function RecentRow({
 	onMove: (folder: string | null) => void
 	onNewFolder: () => void
 }) {
-	const { queue } = useSession()
+	const { queue, titles } = useSession()
 	const [menu, setMenu] = useState<RowMenuState>({ sourcePath: null, sourceExists: false })
 	const [renaming, setRenaming] = useState(false)
+	const [menuOpen, setMenuOpen] = useState(false)
 	const [retranscribing, setRetranscribing] = useState(false)
 	const [draftName, setDraftName] = useState(entry.name)
 	// The new-folder editor takes focus while the menu closes; handing it back to "…" would blur it.
@@ -256,7 +257,14 @@ function RecentRow({
 	}
 
 	return (
-		<div className={cn('group relative flex items-center rounded-xl transition-colors duration-150', active ? 'bg-muted' : 'hover:bg-muted/60')}>
+		<div
+			className={cn('group relative flex items-center rounded-xl transition-colors duration-150', active ? 'bg-muted' : 'hover:bg-muted/60')}
+			// Right-click opens the same menu as "…".
+			onContextMenu={(event) => {
+				event.preventDefault()
+				void loadSource()
+				setMenuOpen(true)
+			}}>
 			<RetranscribeDialog open={retranscribing} onOpenChange={setRetranscribing} name={entry.name} onConfirm={retranscribe} />
 			<button
 				type="button"
@@ -268,8 +276,10 @@ function RecentRow({
 			</button>
 
 			<DropdownMenu
+				open={menuOpen}
 				onOpenChange={(open) => {
 					if (open) void loadSource()
+					setMenuOpen(open)
 				}}>
 				<DropdownMenuTrigger asChild>
 					<button
@@ -299,6 +309,10 @@ function RecentRow({
 							setRenaming(true)
 						}}>
 						{m.rename()}
+					</DropdownMenuItem>
+					{/* Renames the project folder, so not while a transcription is still writing into it. */}
+					<DropdownMenuItem disabled={!!job || !titles.enabled || !!titles.pending[entry.path]} onSelect={() => void titles.regenerate(entry.path)}>
+						{m.regenerateTitle()}
 					</DropdownMenuItem>
 					{/* Moving a project mid-transcription would pull it out from under the write of its result. */}
 					<MoveToSubmenu current={entry.folder} folders={folders} disabled={!!job} onMove={onMove}

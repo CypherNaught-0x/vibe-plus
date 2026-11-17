@@ -786,5 +786,7 @@
 	"folderCreateFailed": "Não foi possível criar uma pasta com esse nome.",
 	"emptyFolder": "Vazia",
 	"savingToFolder": "Salvando em {name}",
-	"stopSavingToFolder": "Salvar novas transcrições fora de pastas"
+	"stopSavingToFolder": "Salvar novas transcrições fora de pastas",
+	"regenerateTitle": "Gerar título novamente",
+	"regenerateTitleFailed": "Não foi possível gerar o título novamente"
 }

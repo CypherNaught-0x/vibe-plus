@@ -786,5 +786,7 @@
 	"folderCreateFailed": "无法使用该名称创建文件夹。",
 	"emptyFolder": "空",
 	"savingToFolder": "正在保存到 {name}",
-	"stopSavingToFolder": "将新转录保存在文件夹之外"
+	"stopSavingToFolder": "将新转录保存在文件夹之外",
+	"regenerateTitle": "重新生成标题",
+	"regenerateTitleFailed": "无法重新生成标题"
 }

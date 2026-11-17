@@ -786,5 +786,7 @@
 	"folderCreateFailed": "Impossibile creare una cartella con questo nome.",
 	"emptyFolder": "Vuota",
 	"savingToFolder": "Salvataggio in {name}",
-	"stopSavingToFolder": "Salva le nuove trascrizioni fuori dalle cartelle"
+	"stopSavingToFolder": "Salva le nuove trascrizioni fuori dalle cartelle",
+	"regenerateTitle": "Rigenera titolo",
+	"regenerateTitleFailed": "Impossibile rigenerare il titolo"
 }

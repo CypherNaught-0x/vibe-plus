@@ -786,5 +786,7 @@
 	"folderCreateFailed": "無法使用該名稱建立資料夾。",
 	"emptyFolder": "空",
 	"savingToFolder": "正在儲存至 {name}",
-	"stopSavingToFolder": "將新轉錄儲存在資料夾之外"
+	"stopSavingToFolder": "將新轉錄儲存在資料夾之外",
+	"regenerateTitle": "重新產生標題",
+	"regenerateTitleFailed": "無法重新產生標題"
 }

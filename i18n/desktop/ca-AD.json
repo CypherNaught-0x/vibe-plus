@@ -786,5 +786,7 @@
 	"folderCreateFailed": "No s'ha pogut crear una carpeta amb aquest nom.",
 	"emptyFolder": "Buida",
 	"savingToFolder": "Desant a {name}",
-	"stopSavingToFolder": "Desa les transcripcions noves fora de les carpetes"
+	"stopSavingToFolder": "Desa les transcripcions noves fora de les carpetes",
+	"regenerateTitle": "Torna a generar el títol",
+	"regenerateTitleFailed": "No s'ha pogut tornar a generar el títol"
 }

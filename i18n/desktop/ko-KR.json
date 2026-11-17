@@ -786,5 +786,7 @@
 	"folderCreateFailed": "해당 이름으로 폴더를 만들 수 없습니다.",
 	"emptyFolder": "비어 있음",
 	"savingToFolder": "{name}에 저장 중",
-	"stopSavingToFolder": "새 받아쓰기를 폴더 밖에 저장"
+	"stopSavingToFolder": "새 받아쓰기를 폴더 밖에 저장",
+	"regenerateTitle": "제목 다시 생성",
+	"regenerateTitleFailed": "제목을 다시 생성하지 못했습니다"
 }

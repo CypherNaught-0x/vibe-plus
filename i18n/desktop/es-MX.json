@@ -786,5 +786,7 @@
 	"folderCreateFailed": "No se pudo crear una carpeta con ese nombre.",
 	"emptyFolder": "Vacía",
 	"savingToFolder": "Guardando en {name}",
-	"stopSavingToFolder": "Guardar las transcripciones nuevas fuera de las carpetas"
+	"stopSavingToFolder": "Guardar las transcripciones nuevas fuera de las carpetas",
+	"regenerateTitle": "Volver a generar el título",
+	"regenerateTitleFailed": "No se pudo volver a generar el título"
 }
