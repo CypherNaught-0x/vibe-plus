@@ -30,6 +30,7 @@ import { isTranscribing, RowProgress } from './transcribe-progress'
 import type { Job } from '../hooks/use-transcribe-queue'
 import { useRecentsFolders } from '../hooks/use-recents-folders'
 import { FolderNameInput, FolderRow, MoveToSubmenu, NewFolderButton, TargetFolderChip } from './recents-folders'
+import { DragGhost, DragRow, useRecentsDrag, type DragSource, type DropTarget } from './recents-drag'
 
 /** Resize bounds: never narrower than the rows need, never much wider than the default. */
 const DEFAULT_WIDTH = 288
@@ -375,6 +376,7 @@ function RecentsList({
 	onChanged,
 	onRenamed,
 	onMove,
+	onDrop,
 	onCreateFolder,
 	onCancelNewFolder,
 	onStartNewFolder,
@@ -395,6 +397,7 @@ function RecentsList({
 	onChanged: () => void
 	onRenamed: (entry: TranscriptEntry, renamed: TranscriptEntry) => void
 	onMove: (entry: TranscriptEntry, folder: string | null) => void
+	onDrop: (source: DragSource, target: DropTarget) => void
 	onCreateFolder: (name: string) => void
 	onCancelNewFolder: () => void
 	onStartNewFolder: (moving: TranscriptEntry) => void
@@ -413,6 +416,7 @@ function RecentsList({
 		measureElement: (element) => element.getBoundingClientRect().height,
 		overscan: 8,
 	})
+	const drag = useRecentsDrag(items, scrollRef, onDrop)
 
 	function renderItem(item: RecentsItem) {
 		if (item.kind === 'new-folder') return <FolderNameInput onCommit={onCreateFolder} onCancel={onCancelNewFolder} />
@@ -451,7 +455,8 @@ function RecentsList({
 	}
 
 	return (
-		<div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
+		<div ref={scrollRef} data-recents-index={-1} className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
+			<DragGhost drag={drag} />
 			<div className="relative w-full" style={{ height: virtualizer.getTotalSize() }}>
 				{virtualizer.getVirtualItems().map((virtual) => {
 					const item = items[virtual.index]
@@ -463,7 +468,9 @@ function RecentsList({
 							data-index={virtual.index}
 							className="absolute inset-x-0 top-0"
 							style={{ transform: `translateY(${virtual.start}px)` }}>
-							{renderItem(item)}
+							<DragRow drag={drag} item={item} index={virtual.index}>
+								{renderItem(item)}
+							</DragRow>
 						</div>
 					)
 				})}
@@ -601,6 +608,7 @@ export default function RecentsSidebar() {
 					onChanged={refresh}
 					onRenamed={renamed}
 					onMove={folderActions.move}
+					onDrop={folderActions.drop}
 					onCreateFolder={folderActions.create}
 					onCancelNewFolder={folderActions.cancelCreating}
 					onStartNewFolder={folderActions.startCreating}
