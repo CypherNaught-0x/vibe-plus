@@ -69,7 +69,9 @@ jobs:
             matrix:
                 # The runners and flags of server-release.yml, so the build matches upstream's.
                 include:
-                    - runner: macos-15
+                    # macos-latest rather than server-release.yml's macos-15: the fork's runs waited
+                    # on macos-15 until GitHub gave up, three times in a row.
+                    - runner: macos-latest
                       triple: aarch64-apple-darwin
                     - runner: macos-15-intel
                       triple: x86_64-apple-darwin
