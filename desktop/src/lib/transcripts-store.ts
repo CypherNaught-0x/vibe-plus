@@ -41,6 +41,8 @@ export interface TranscriptRecord {
 	speakerNames?: SpeakerNames
 	/** Last AI summary of this transcript, when one was made. */
 	summary?: string
+	/** One line saying what the transcript covers, written by the AI after transcription. */
+	subtitle?: string
 	/** Raw text was intentionally redacted after a successful AI task. */
 	transcriptDeleted?: boolean
 	/** Questions asked about this transcript and the model's answers, oldest first. */
@@ -448,6 +450,7 @@ export async function readTranscript(path: string): Promise<TranscriptRecord | n
 			transcriptDeleted: parsed.transcriptDeleted === true || undefined,
 			speakerNames: parsed.transcriptDeleted === true ? undefined : parseSpeakerNames(parsed.speakerNames),
 			summary: typeof parsed.summary === 'string' ? parsed.summary : undefined,
+			subtitle: typeof parsed.subtitle === 'string' && parsed.subtitle ? parsed.subtitle : undefined,
 			thread: parseThread(parsed.thread),
 		}
 	} catch (error) {
@@ -514,6 +517,10 @@ export function updateTranscriptSpeakerNames(path: string, speakerNames: Speaker
 /** Caller must serialize thread changes with redaction and avoid submitting pre-redaction history. */
 export function updateTranscriptThread(path: string, thread: AiThreadEntry[], afterRedaction = false): Promise<boolean> {
 	return updateRecord(path, (record) => (record.transcriptDeleted && !afterRedaction ? null : { ...record, thread: thread.length > 0 ? thread : undefined }))
+}
+
+export function updateTranscriptSubtitle(path: string, subtitle: string): Promise<boolean> {
+	return updateRecord(path, (record) => ({ ...record, subtitle: subtitle || undefined }))
 }
 
 /** Publish the derived result and optional raw-text redaction as ONE atomic metadata replacement. */

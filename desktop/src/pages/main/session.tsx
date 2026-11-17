@@ -21,6 +21,7 @@ import { usePreferenceProvider, type Preference } from '~/providers/preference'
 import { useAudioDownload } from '~/pages/home/hooks/use-audio-download'
 import { useRecording } from '~/pages/home/hooks/use-recording'
 import { useDropTarget } from './hooks/use-drop-target'
+import { useAutoTitle } from './hooks/use-auto-title'
 import { useSummaries, type Summaries } from './hooks/use-summaries'
 import { useTranscribeQueue, type TranscribeQueue } from './hooks/use-transcribe-queue'
 import { useLiveRecordingProject } from './hooks/use-live-recording-project'
@@ -65,6 +66,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 	const { setState: setErrorModal } = useContext(ErrorModalContext)
 	const queue = useTranscribeQueue()
 	const summaries = useSummaries(queue)
+	useAutoTitle(queue)
 	const [panel, setPanel] = useState<IdlePanel>('none')
 	const [collectingFolder, setCollectingFolder] = useState(false)
 	const [recordElapsed, setRecordElapsed] = useState(0)

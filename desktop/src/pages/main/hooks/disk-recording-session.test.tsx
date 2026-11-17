@@ -35,6 +35,7 @@ vi.mock('~/lib/transcripts-store', () => ({ saveTranscript: mocks.save, notifyTr
 vi.mock('~/pages/home/hooks/use-audio-download', () => ({ useAudioDownload: () => ({}) }))
 vi.mock('./use-drop-target', () => ({ useDropTarget: () => false }))
 vi.mock('./use-summaries', () => ({ useSummaries: () => ({}) }))
+vi.mock('./use-auto-title', () => ({ useAutoTitle: () => {} }))
 vi.mock('./use-transcribe-queue', () => ({
 	useTranscribeQueue: () => ({
 		jobs: [],

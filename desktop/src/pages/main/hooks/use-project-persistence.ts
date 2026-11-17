@@ -7,6 +7,7 @@ import {
 	saveTranscript,
 	updateTranscriptSegments,
 	updateTranscriptSpeakerNames,
+	updateTranscriptSubtitle,
 	updateTranscriptSummary,
 	updateTranscriptThread,
 	type AiThreadEntry,
@@ -118,7 +119,7 @@ export function useProjectPersistence(
 				const job = find(id)
 				if (!job || !next) return false
 				if (!job.savedPath) {
-					patch(id, { name: next })
+					patch(id, { name: next, autoNamed: false })
 					return true
 				}
 				const renamed = await renameTranscript(job.savedPath, next)
@@ -126,6 +127,7 @@ export function useProjectPersistence(
 				const latest = find(id)
 				patch(id, {
 					...(latest?.name === job.name || latest?.name === next ? { name: next } : {}),
+					autoNamed: false,
 					savedPath: renamed.path,
 					path: renamed.mediaPath ?? job.path,
 				})
@@ -135,7 +137,23 @@ export function useProjectPersistence(
 		[find, patch, serial],
 	)
 
-	const previewJobName = useCallback((id: string, name: string) => patch(id, { name }), [patch])
+	// Typing in the title claims it, so a late AI title never overwrites what the user is writing.
+	const previewJobName = useCallback((id: string, name: string) => patch(id, { name, autoNamed: false }), [patch])
+
+	const setJobSubtitle = useCallback(
+		(id: string, subtitle: string) =>
+			serial(id, async () => {
+				const job = find(id)
+				const next = subtitle.trim()
+				if (!job || !next) return false
+				patch(id, { subtitle: next })
+				if (!job.savedPath) return true
+				const saved = await updateTranscriptSubtitle(job.savedPath, next)
+				if (saved) notifyTranscriptsChanged()
+				return saved
+			}),
+		[find, patch, serial],
+	)
 
 	const setJobSummary = useCallback(
 		(id: string, summary: string) =>
@@ -198,5 +216,5 @@ export function useProjectPersistence(
 		[jobs, patch],
 	)
 
-	return { persist, setSegments, renameJob, previewJobName, setJobSummary, setJobThread, setSpeakerName, relocateSaved }
+	return { persist, setSegments, renameJob, previewJobName, setJobSummary, setJobSubtitle, setJobThread, setSpeakerName, relocateSaved }
 }

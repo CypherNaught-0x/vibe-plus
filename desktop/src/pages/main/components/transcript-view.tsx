@@ -304,6 +304,7 @@ export default function TranscriptView({
 						onDraftChange={(name) => queue.previewJobName(job.id, name)}
 						onRename={(name) => queue.renameJob(job.id, name)}
 					/>
+					{job.subtitle && <p className="-mt-6 mb-8 text-sm text-muted-foreground">{job.subtitle}</p>}
 
 					{job.status === 'error' && <p className="mb-8 text-sm text-destructive">{job.error}</p>}
 

@@ -70,6 +70,10 @@ export interface Job {
 	hydrated?: boolean
 	/** Last AI summary of this transcript, when one was made. */
 	summary?: string
+	/** One line under the title saying what the transcript covers, written by the AI. */
+	subtitle?: string
+	/** Still carries the name Vibe made up for it (`File-…`, `Record-…`), so the AI may retitle it. */
+	autoNamed?: boolean
 	/** Questions asked about this transcript and their answers, oldest first. */
 	thread?: AiThreadEntry[]
 	/** Names the user gave the diarized speakers, by zero-based speaker index. */
@@ -126,6 +130,8 @@ export interface TranscribeQueue {
 	previewJobName: (jobId: string, name: string) => void
 	/** Attach an AI summary to a job. Persists to the job's saved file when it has one. */
 	setJobSummary: (jobId: string, summary: string) => Promise<boolean>
+	/** Attach the AI subtitle to a job. Persists to the job's saved file when it has one. */
+	setJobSubtitle: (jobId: string, subtitle: string) => Promise<boolean>
 	/** Replace the question-and-answer thread of a job. Persists like the summary. */
 	setJobThread: (jobId: string, thread: AiThreadEntry[]) => void
 	/** Name one diarized speaker; an empty name restores "Speaker N". Persists like the segment edits. */
@@ -233,11 +239,8 @@ export function useTranscribeQueue(): TranscribeQueue {
 		[select],
 	)
 
-	const { persist, setSegments, renameJob, previewJobName, setJobSummary, setJobThread, setSpeakerName, relocateSaved } = useProjectPersistence(
-		jobsRef,
-		preferenceRef,
-		patch,
-	)
+	const { persist, setSegments, renameJob, previewJobName, setJobSummary, setJobSubtitle, setJobThread, setSpeakerName, relocateSaved } =
+		useProjectPersistence(jobsRef, preferenceRef, patch)
 
 	useEffect(() => {
 		const unlisteners: Promise<UnlistenFn>[] = [
@@ -575,6 +578,7 @@ export function useTranscribeQueue(): TranscribeQueue {
 				// A re-transcribed project keeps its own title: prefixing it again would grow
 				// "File-multi" into "File-File-multi" on every run.
 				name: file.projectName ?? autoProjectName(file.name, file.source ?? 'file'),
+				autoNamed: !file.projectName,
 				path: isPrivateAudioPath(file.path) ? '' : file.path,
 				privateAudioPath: isPrivateAudioPath(file.path) ? file.path : undefined,
 				source: file.source ?? 'file',
@@ -619,6 +623,9 @@ export function useTranscribeQueue(): TranscribeQueue {
 				savedPath,
 				hydrated: true,
 				summary: record.summary,
+				subtitle: record.subtitle,
+				// Only a fresh recording arrives here with a made-up name; opened projects keep theirs.
+				autoNamed: source === 'record',
 				thread: record.thread,
 				speakerNames: record.speakerNames,
 			}
@@ -689,6 +696,7 @@ export function useTranscribeQueue(): TranscribeQueue {
 		renameJob,
 		previewJobName,
 		setJobSummary,
+		setJobSubtitle,
 		setJobThread,
 		setSpeakerName,
 		cancelCurrent,
