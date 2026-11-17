@@ -58,7 +58,7 @@
 	},
 	"plugins": {
 		"updater": {
-			"pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDg0NDVGMjA1MEJEMUM3RDIKUldUU3g5RUxCZkpGaEI4OHJ0U3FwWDd0YU5Qdm1SV1ZXOVpPNHJoSDFYL010NjgyUTc1TWE4bC8K",
+			"pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDk3QzM3NTgwNzlDRDY3RjYKUldUMlo4MTVnSFhEbDJscFVXMWJwTlZTOUM0NFdsdVZwN2FZSTdiVEZxWkNTZk13U0s2Q3VUdW8K",
 			"endpoints": ["https://github.com/CypherNaught-0x/vibe-plus/releases/latest/download/latest.json"]
 		},
 		"deep-link": {

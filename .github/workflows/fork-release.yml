@@ -3,7 +3,7 @@ name: Release vibe++
 # A version bump on main releases it: the app on every platform, with the server built from
 # this tree (the fork changes it), published as v<version> and marked latest, which is where the
 # app's updater looks (desktop/src-tauri/src/updater/channel.rs). Update bundles are signed with
-# the fork's updater key (secret TAURI_PRIVATE_KEY); the apps themselves are not code-signed.
+# the fork's updater key (secrets TAURI_PRIVATE_KEY and TAURI_KEY_PASSWORD); the apps themselves are not code-signed.
 
 on:
     push:
@@ -181,7 +181,7 @@ jobs:
               env:
                   GITHUB_TOKEN: ${{ github.token }}
                   TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
-                  TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
+                  TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
               with:
                   releaseId: ${{ needs.prepare.outputs.release-id }}
                   args: --target ${{ matrix.triple }}
