@@ -1,0 +1,192 @@
+name: Release vibe++
+
+# A version bump on main releases it: the app on every platform, with the server built from
+# this tree (the fork changes it), published as v<version>. Unsigned, and without updater
+# artifacts: the updater key and the signing identities belong to upstream.
+
+on:
+    push:
+        branches:
+            - main
+        paths:
+            - "desktop/src-tauri/tauri.conf.json"
+    workflow_dispatch:
+
+permissions:
+    contents: write
+
+concurrency:
+    group: release
+    cancel-in-progress: false
+
+jobs:
+    prepare:
+        runs-on: ubuntu-24.04
+        outputs:
+            version: ${{ steps.version.outputs.version }}
+            release-id: ${{ steps.release.outputs.id }}
+        steps:
+            - uses: actions/checkout@v4
+
+            - name: Read the version
+              id: version
+              run: echo "version=$(jq -r .version desktop/src-tauri/tauri.conf.json)" >> "$GITHUB_OUTPUT"
+
+            # A published release means this version already shipped (the file changed for another
+            # reason); a draft is a failed earlier run and is reused.
+            - name: Create the draft release
+              id: release
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  TAG: v${{ steps.version.outputs.version }}
+              run: |
+                  existing=$(gh api "repos/$GITHUB_REPOSITORY/releases" --paginate --jq ".[] | select(.tag_name == \"$TAG\") | [.id, .draft] | @tsv" | head -1)
+                  if [ -n "$existing" ]; then
+                      read -r id draft <<< "$existing"
+                      if [ "$draft" != "true" ]; then
+                          echo "$TAG is already released; nothing to do"
+                          exit 0
+                      fi
+                  else
+                      gh release create "$TAG" --draft --target "$GITHUB_SHA" --title "vibe++ $TAG" --generate-notes \
+                          --notes "What vibe++ adds on top of upstream: https://github.com/$GITHUB_REPOSITORY#about-vibe
+
+                  Builds are not signed. On macOS, right-click the app and choose Open the first time."
+                      id=$(gh api "repos/$GITHUB_REPOSITORY/releases" --paginate --jq ".[] | select(.tag_name == \"$TAG\") | .id" | head -1)
+                  fi
+                  echo "id=$id" >> "$GITHUB_OUTPUT"
+
+    server:
+        needs: prepare
+        if: needs.prepare.outputs.release-id != ''
+        strategy:
+            fail-fast: false
+            matrix:
+                # The runners and flags of server-release.yml, so the build matches upstream's.
+                include:
+                    - runner: macos-15
+                      triple: aarch64-apple-darwin
+                    - runner: macos-15-intel
+                      triple: x86_64-apple-darwin
+                      cargo_flags: --no-default-features
+                    - runner: ubuntu-24.04
+                      triple: x86_64-unknown-linux-gnu
+                    - runner: ubuntu-24.04-arm
+                      triple: aarch64-unknown-linux-gnu
+                    - runner: windows-latest
+                      triple: x86_64-pc-windows-msvc
+        runs-on: ${{ matrix.runner }}
+        defaults:
+            run:
+                working-directory: server
+        steps:
+            - uses: actions/checkout@v4
+            - uses: dtolnay/rust-toolchain@stable
+            - uses: swatinem/rust-cache@v2
+              with:
+                  workspaces: server -> target
+            - uses: getchore/setup-chore@v1
+              with:
+                  version: v1.6.0
+            - name: Download prebuilt GGML libs
+              run: chore fetch-libs
+            - name: Build vibe-server
+              shell: bash
+              env:
+                  VIBE_SERVER_COMMIT: ${{ github.sha }}
+                  VIBE_SERVER_VERSION: ${{ needs.prepare.outputs.version }}
+              run: cargo build -p vibe-server --release ${{ matrix.cargo_flags }}
+            - uses: actions/upload-artifact@v4
+              with:
+                  name: vibe-server-${{ matrix.triple }}
+                  path: server/target/release/vibe-server${{ runner.os == 'Windows' && '.exe' || '' }}
+                  if-no-files-found: error
+
+    app:
+        needs: [prepare, server]
+        timeout-minutes: 120
+        strategy:
+            fail-fast: false
+            matrix:
+                include:
+                    - platform: macos-latest
+                      triple: aarch64-apple-darwin
+                    - platform: macos-latest
+                      triple: x86_64-apple-darwin
+                    - platform: ubuntu-22.04
+                      triple: x86_64-unknown-linux-gnu
+                    - platform: ubuntu-22.04-arm
+                      triple: aarch64-unknown-linux-gnu
+                    - platform: windows-latest
+                      triple: x86_64-pc-windows-msvc
+        runs-on: ${{ matrix.platform }}
+        steps:
+            - uses: actions/checkout@v4
+
+            - uses: pnpm/action-setup@v4
+              with:
+                  package_json_file: desktop/package.json
+
+            - uses: actions/setup-node@v4
+              with:
+                  node-version: 22
+                  cache: pnpm
+                  cache-dependency-path: desktop/pnpm-lock.yaml
+
+            - uses: astral-sh/setup-uv@v5
+
+            - uses: getchore/setup-chore@v1
+              with:
+                  version: v1.6.0
+
+            - uses: swatinem/rust-cache@v2
+
+            - uses: dtolnay/rust-toolchain@stable
+              with:
+                  targets: ${{ runner.os == 'macOS' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+            - name: Install frontend dependencies
+              run: pnpm install
+              working-directory: ./desktop
+
+            - name: Install Linux build dependencies
+              if: runner.os == 'Linux'
+              run: chore linux-deps
+
+            # ffmpeg (and the GStreamer plugin on Linux) come from the pinned upstream release;
+            # the server it brings is replaced by this tree's build below.
+            - name: Fetch the sidecars
+              run: chore setup ${{ matrix.triple }}
+
+            - uses: actions/download-artifact@v4
+              with:
+                  name: vibe-server-${{ matrix.triple }}
+                  path: target/server-build
+
+            - name: Use the server built from this tree
+              shell: bash
+              run: |
+                  exe=""
+                  if [ "$RUNNER_OS" = "Windows" ]; then exe=.exe; fi
+                  mv -f "target/server-build/vibe-server$exe" "desktop/src-tauri/binaries/vibe-server-${{ matrix.triple }}$exe"
+                  chmod 755 "desktop/src-tauri/binaries/vibe-server-${{ matrix.triple }}$exe"
+                  echo '{"bundle":{"createUpdaterArtifacts":false}}' > desktop/src-tauri/tauri.release.conf.json
+
+            - name: Build and upload
+              uses: tauri-apps/tauri-action@v0
+              env:
+                  GITHUB_TOKEN: ${{ github.token }}
+              with:
+                  releaseId: ${{ needs.prepare.outputs.release-id }}
+                  args: --target ${{ matrix.triple }} --config src-tauri/tauri.release.conf.json
+                  projectPath: ./desktop
+                  tauriScript: pnpm exec tauri
+
+    publish:
+        needs: [prepare, app]
+        runs-on: ubuntu-24.04
+        steps:
+            - name: Publish the release
+              env:
+                  GH_TOKEN: ${{ github.token }}
+              run: gh release edit "v${{ needs.prepare.outputs.version }}" -R "$GITHUB_REPOSITORY" --draft=false --latest
